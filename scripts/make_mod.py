@@ -25,8 +25,18 @@ WHAT YOU NEED
                                     compressed containers and by UnrealReZen
 
 Put items 4-6 in a `tools/` folder at the repo root (or pass --tools).
-The game is found automatically in the usual Steam locations; override with
---game-dir or the STALKER2_DIR environment variable.
+
+FINDING THE GAME
+----------------
+The game folder is detected automatically: the Steam install is read from the
+registry, every library in libraryfolders.vdf is searched (so a library on any
+drive works), and GOG/Epic installs are picked up from their uninstall entries.
+If that fails, say where it is:
+
+    python scripts/make_mod.py --game-dir "D:\\Games\\S.T.A.L.K.E.R. 2 Heart of Chornobyl"
+
+or set the STALKER2_DIR environment variable. The correct folder is the one
+containing Stalker2\\Content\\Paks. `--check` prints everywhere it looked.
 
 Only `bel` is read from the json files -- `ua` and `ru` are reference text.
 """
@@ -54,31 +64,157 @@ PAK_NAME = "bel_stalker"
 
 TOOL_FILES = ["S2HOC_LocEditor.exe", "UnrealReZen.exe", "oo2core_9_win64.dll"]
 
-STEAM_GUESSES = [
-    r"C:\Games\Steam\steamapps\common\S.T.A.L.K.E.R. 2 Heart of Chornobyl",
-    r"C:\Program Files (x86)\Steam\steamapps\common\S.T.A.L.K.E.R. 2 Heart of Chornobyl",
-    r"D:\Steam\steamapps\common\S.T.A.L.K.E.R. 2 Heart of Chornobyl",
-    r"D:\SteamLibrary\steamapps\common\S.T.A.L.K.E.R. 2 Heart of Chornobyl",
-    r"E:\SteamLibrary\steamapps\common\S.T.A.L.K.E.R. 2 Heart of Chornobyl",
-]
+STEAM_APP_ID = "1643320"
+STEAM_DIR_NAME = "S.T.A.L.K.E.R. 2 Heart of Chornobyl"
 
 
 # --------------------------------------------------------------------------
-# environment
+# finding the game
 # --------------------------------------------------------------------------
+
+def is_game_dir(path):
+    return bool(path) and os.path.isdir(os.path.join(path, "Stalker2", "Content", "Paks"))
+
+
+def _registry_values(entries):
+    """Read a list of (hive, subkey, value) tuples, skipping whatever is absent."""
+    try:
+        import winreg
+    except ImportError:
+        return []
+    out = []
+    for hive_name, subkey, value in entries:
+        try:
+            with winreg.OpenKey(getattr(winreg, hive_name), subkey) as key:
+                out.append(winreg.QueryValueEx(key, value)[0])
+        except OSError:
+            continue
+    return out
+
+
+def steam_roots():
+    """Every Steam install root we can find, registry first."""
+    roots = _registry_values([
+        ("HKEY_CURRENT_USER", r"Software\Valve\Steam", "SteamPath"),
+        ("HKEY_LOCAL_MACHINE", r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"),
+        ("HKEY_LOCAL_MACHINE", r"SOFTWARE\Valve\Steam", "InstallPath"),
+    ])
+    roots += [
+        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Steam"),
+        r"C:\Steam",
+    ]
+    return [os.path.normpath(r) for r in roots if r and os.path.isdir(r)]
+
+
+def steam_libraries():
+    """All Steam library folders, read from libraryfolders.vdf.
+
+    Steam libraries can live on any drive, so the config is the only reliable
+    source -- guessing drive letters misses most setups.
+    """
+    libraries = []
+    for root in steam_roots():
+        libraries.append(root)
+        vdf = os.path.join(root, "steamapps", "libraryfolders.vdf")
+        try:
+            with open(vdf, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        # lines look like:   "path"    "D:\\SteamLibrary"
+        for line in text.splitlines():
+            parts = line.split('"')
+            if len(parts) >= 5 and parts[1] == "path":
+                libraries.append(os.path.normpath(parts[3].replace("\\\\", "\\")))
+    return libraries
+
+
+def steam_candidates():
+    """Game folders from every Steam library, honouring the manifest's installdir."""
+    found = []
+    for library in steam_libraries():
+        steamapps = os.path.join(library, "steamapps")
+        manifest = os.path.join(steamapps, "appmanifest_%s.acf" % STEAM_APP_ID)
+        names = [STEAM_DIR_NAME]
+        try:
+            with open(manifest, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    parts = line.split('"')
+                    if len(parts) >= 5 and parts[1] == "installdir":
+                        names.insert(0, parts[3])
+        except OSError:
+            pass
+        found += [os.path.join(steamapps, "common", n) for n in names]
+    return found
+
+
+def other_launcher_candidates():
+    """GOG / Epic / anything that registered an uninstall entry."""
+    try:
+        import winreg
+    except ImportError:
+        return []
+    found = []
+    for hive_name, subkey in (
+            ("HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+            ("HKEY_LOCAL_MACHINE", r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+            ("HKEY_CURRENT_USER", r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall")):
+        try:
+            with winreg.OpenKey(getattr(winreg, hive_name), subkey) as root:
+                for i in range(winreg.QueryInfoKey(root)[0]):
+                    try:
+                        with winreg.OpenKey(root, winreg.EnumKey(root, i)) as entry:
+                            name = winreg.QueryValueEx(entry, "DisplayName")[0]
+                            if "S.T.A.L.K.E.R. 2" not in name and "STALKER 2" not in name:
+                                continue
+                            for value in ("InstallLocation", "InstallPath"):
+                                try:
+                                    found.append(winreg.QueryValueEx(entry, value)[0])
+                                except OSError:
+                                    pass
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return [p for p in found if p]
+
+
+def tidy(path):
+    """Normalise, and upper-case the drive letter the registry hands back."""
+    path = os.path.normpath(path)
+    drive, rest = os.path.splitdrive(path)
+    return drive.upper() + rest
+
 
 def find_game(explicit=None):
-    for candidate in filter(None, [explicit, os.environ.get("STALKER2_DIR")] + STEAM_GUESSES):
-        if os.path.isdir(os.path.join(candidate, "Stalker2", "Content", "Paks")):
-            return candidate
-    return None
+    """-> (game folder or None, list of places we looked).
+
+    An explicit --game-dir is never silently overridden: if it is wrong we
+    report that rather than quietly building against some other install.
+    """
+    if explicit:
+        explicit = tidy(explicit)
+        return (explicit if is_game_dir(explicit) else None), [explicit]
+
+    tried = []
+    for candidate in ([os.environ.get("STALKER2_DIR")]
+                      + steam_candidates() + other_launcher_candidates()):
+        if not candidate:
+            continue
+        candidate = tidy(candidate)
+        if candidate in tried:
+            continue
+        tried.append(candidate)
+        if is_game_dir(candidate):
+            return candidate, tried
+    return None, tried
 
 
 def find_tools(explicit=None):
     return explicit or os.path.join(ROOT, "tools")
 
 
-def check(game_dir, tools_dir):
+def check(game_dir, tools_dir, tried):
     """-> list of human-readable problems, empty when everything is present."""
     problems = []
 
@@ -94,7 +230,17 @@ def check(game_dir, tools_dir):
     if game_dir:
         print("  game    : %s" % game_dir)
     else:
-        problems.append("S.T.A.L.K.E.R. 2 not found -- pass --game-dir or set STALKER2_DIR")
+        print("  game    : NOT FOUND. Looked in:")
+        for path in tried:
+            print("      %s" % path)
+        if not tried:
+            print("      (nothing to try -- no Steam install detected)")
+        problems.append(
+            "S.T.A.L.K.E.R. 2 not found. Point at it with\n"
+            "      python scripts/make_mod.py --game-dir \"D:\\Games\\S.T.A.L.K.E.R. 2 "
+            "Heart of Chornobyl\"\n"
+            "    or set the STALKER2_DIR environment variable. The right folder is the "
+            "one containing Stalker2\\Content\\Paks")
 
     print("  tools   : %s" % tools_dir)
     for name in TOOL_FILES:
@@ -200,11 +346,15 @@ def main():
                     help="output folder (default: <repo>/mod)")
     args = ap.parse_args()
 
-    game_dir = find_game(args.game_dir)
+    game_dir, tried = find_game(args.game_dir)
     tools_dir = find_tools(args.tools)
 
+    if args.game_dir and not game_dir:
+        sys.exit("--game-dir %s does not look like a S.T.A.L.K.E.R. 2 install\n"
+                 "(no Stalker2\\Content\\Paks inside it)" % args.game_dir)
+
     print("checking dependencies ...")
-    problems = check(game_dir, tools_dir)
+    problems = check(game_dir, tools_dir, tried)
     if problems:
         print("\nnot ready to build:")
         for p in problems:
