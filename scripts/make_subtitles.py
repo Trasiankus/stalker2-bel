@@ -1,15 +1,17 @@
 """Generate the cutscene subtitle files from subtitles.json.
 
-    python make_subtitles.py [--lang bel] [--out subtitles]
+    python make_subtitles.py [--lang bel] [--out FOLDER]
 
 Writes one .srt per cutscene, named the way the game expects
-(<cutscene>_ru.srt -- the mod replaces the Russian track), into ./subtitles/.
-Copy that folder's contents into
+(<cutscene>_ru.srt -- the mod replaces the Russian track), into
 
-    S.T.A.L.K.E.R. 2 Heart of Chornobyl\\Stalker2\\Content\\Movies\\TempCutscenes\\Cutscenes
+    mod/Stalker2/Content/Movies/TempCutscenes/Cutscenes/
 
-Standard library only, Python 3.8+. No dependencies, nothing else from this
-repo is needed.
+which mirrors the game folder, so installing is a plain copy of everything
+inside mod/ into the game's root directory.
+
+Standard library only, Python 3.8+. Nothing else from this repo is needed --
+run make_mod.py instead if you also want the .pak rebuilt.
 """
 
 import argparse
@@ -18,7 +20,10 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SOURCE = os.path.join(HERE, "subtitles.json")
+ROOT = os.path.dirname(HERE)
+SOURCE = os.path.join(ROOT, "subtitles.json")
+DEFAULT_OUT = os.path.join(ROOT, "mod", "Stalker2", "Content", "Movies",
+                           "TempCutscenes", "Cutscenes")
 
 # The game's own files are inconsistent about the BOM (8 of 13 carry one) and
 # it parses both, so we always write it and stay deterministic.
@@ -49,12 +54,12 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--lang", default="bel", choices=["bel", "ua", "ru"],
                     help="which column to write (default: bel)")
-    ap.add_argument("--out", default=os.path.join(HERE, "subtitles"),
-                    help="output folder (default: ./subtitles)")
+    ap.add_argument("--out", default=DEFAULT_OUT,
+                    help="output folder (default: ./mod/<game path>/Cutscenes)")
     args = ap.parse_args()
 
     if not os.path.isfile(SOURCE):
-        sys.exit("subtitles.json not found next to this script")
+        sys.exit("subtitles.json not found at %s" % SOURCE)
 
     with open(SOURCE, "r", encoding="utf-8-sig") as f:
         subtitles = json.load(f)

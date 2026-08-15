@@ -12,17 +12,43 @@
 |---|---|
 | `localization.json` | увесь тэкст гульні: `{ ключ: {"ua": …, "ru": …, "bel": …} }`. `ua` і `ru` — арыгінал з гульні, `bel` — пераклад. Раней зваўся `bel_stalker.json`. |
 | `subtitles.json` | субтытры да ролікаў, той жа фармат плюс поле `time` з таймкодам рэплікі |
-| `make_subtitles.py` | ствараe папку `subtitles/` з файламі `.srt` у фармаце гульні |
+| `scripts/make_mod.py` | збірае ўвесь мод (пак + субтытры) у папку `mod/` |
+| `scripts/make_subtitles.py` | толькі субтытры `.srt`, без пака |
 
 Праўце толькі поле `bel` — `ua` і `ru` абнаўляюцца аўтаматычна з гульні.
 
+## Як сабраць мод
+
 ```
-python make_subtitles.py
+python scripts/make_mod.py --check    # праверыць, ці ўсё ёсць
+python scripts/make_mod.py            # сабраць у mod/
 ```
 
-створыць папку `subtitles/`; яе змест трэба скапіяваць у
-`S.T.A.L.K.E.R. 2 Heart of Chornobyl\Stalker2\Content\Movies\TempCutscenes\Cutscenes`.
-Патрэбны толькі Python 3.8+, ніякіх дадатковых бібліятэк.
+Папка `mod/` паўтарае структуру гульні, таму ўсталяванне — гэта звычайнае
+капіяванне ўсяго з `mod/` у каранёвую папку гульні:
+
+```
+mod/Stalker2/Content/Paks/bel_stalker.pak (.ucas, .utoc)
+mod/Stalker2/Content/Movies/TempCutscenes/Cutscenes/*.srt
+```
+
+Пасля гэтага ў наладах гульні трэба абраць мову тэксту «Русский».
+
+### Што патрэбна для зборкі
+
+1. Windows x64 — усе тры інструменты ніжэй гэта Win64-праграмы
+2. Python 3.9+ — толькі стандартная бібліятэка, нічога ставіць не трэба
+3. Усталяваная S.T.A.L.K.E.R. 2 — зборка чытае `LocalizationDB` з самой
+   гульні, таму пак заўсёды супадае з вашай версіяй гульні
+4. `tools/S2HOC_LocEditor.exe` — `LocalizationDB` `.ubulk` ⇄ `.json`
+5. `tools/UnrealReZen.exe` — збірае `.utoc` / `.ucas` / `.pak`
+6. `tools/oo2core_9_win64.dll` — кодэк Oodle, каб чытаць архівы гульні
+
+Пункты 4–6 пакладзіце ў папку `tools/` у корані рэпазіторыя.
+`make_mod.py --check` пакажа, чаго не хапае.
+
+Калі патрэбныя толькі субтытры (пак не перазбіраецца) — хопіць Python 3.8+
+і `python scripts/make_subtitles.py`, ніякіх інструментаў не трэба.
 
 Гэта нейрасеткавы пераклад, дапрацаваны рукамі. Гульня перакладзеная на 100%.
 
