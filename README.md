@@ -37,9 +37,10 @@ python scripts/make_mod.py            # сабраць у mod/
 6. `tools/oo2core_9_win64.dll` — кодэк Oodle, каб чытаць архівы гульні
 
 Інструменты пакладзіце ў папку `tools/` у корань рэпазіторыя.
-`make_mod.py --check` пакажа, чаго не хапае.
+`make_mod.py --check` пакажа, чаго не хапае. <br>
+[Папка з інструментамі](https://drive.google.com/drive/folders/1atdhANHpGIGG4C2wTxdHSSgvwWepT-e4?usp=drive_link) <br>
 
-Калі патрэбныя толькі субтытры (пак не перазбіраецца) — хопіць Python 3.8+
+Калі патрэбныя толькі субтытры — хопіць Python 3.8+
 і `python scripts/make_subtitles.py`, ніякіх інструментаў не трэба.
 
 Гэта нейрасеткавы пераклад, дапрацаваны рукамі. Гульня перакладзеная на 100%.
